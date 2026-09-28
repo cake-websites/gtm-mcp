@@ -1,6 +1,7 @@
 import { ServerOptions } from "@modelcontextprotocol/sdk/server/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Implementation } from "@modelcontextprotocol/sdk/types.js";
+import { readOnlyServer } from "./readOnly.js";
 import { tools as defaultTools } from "./tools/index.js";
 import { GtmToolContext, GtmToolRegistration } from "./types/index.js";
 import { PACKAGE_VERSION } from "./version.js";
@@ -20,7 +21,8 @@ export function registerGtmTools(
   context: GtmToolContext,
   registrations: GtmToolRegistration[] = defaultTools,
 ): McpServer {
-  registrations.forEach((register) => register(server, context));
+  const filtered = readOnlyServer(server);
+  registrations.forEach((register) => register(filtered, context));
   return server;
 }
 

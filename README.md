@@ -1,4 +1,6 @@
 # MCP Server for Google Tag Manager
+
+> **Cake fork (read-only).** Downstream of [stape-io/google-tag-manager-mcp-server](https://github.com/stape-io/google-tag-manager-mcp-server). This fork exposes 17 tools restricted to read actions (`get`, `list`, and similar); every create, update, remove, revert, publish, sync, and permission action is unregistered, and `gtm_user_permission` is dropped. The allowlist lives in [`packages/core/src/readOnly.ts`](packages/core/src/readOnly.ts) and fails closed: a tool or action added upstream stays hidden until it is listed there. Tokens this server mints request only `tagmanager.readonly`. A refresh or access token you supply keeps whatever scopes it was minted with, so mint it with `tagmanager.readonly` too. The hosted `gtm-mcp.stape.ai` endpoint below is Stape's upstream server, not this fork; use the local CLI built from this repo.
 [![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/stape-io/google-tag-manager-mcp-server)](https://archestra.ai/mcp-catalog/stape-io__google-tag-manager-mcp-server)
 
 An interface to the Google Tag Manager API over MCP, in two flavours: a hosted server with Google OAuth built in, and a local CLI that runs on your own credentials.
