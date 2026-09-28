@@ -60,7 +60,11 @@ const served = await run(
   requests.map((request) => `${JSON.stringify(request)}\n`).join(""),
 );
 
-assert.equal(served.code, 0, `CLI exited with ${served.code}\n${served.stderr}`);
+assert.equal(
+  served.code,
+  0,
+  `CLI exited with ${served.code}\n${served.stderr}`,
+);
 
 const lines = served.stdout.trim().split("\n");
 let messages;
@@ -78,9 +82,23 @@ assert.equal(
 );
 
 const tools = messages.find((message) => message.id === 2)?.result?.tools ?? [];
+// Cake fork: read-only. 17 tools, gtm_user_permission dropped, reads only.
+assert.equal(tools.length, 17, `expected 17 tools, got ${tools.length}`);
 assert.ok(
-  tools.length >= 18,
-  `expected at least 18 tools, got ${tools.length}`,
+  !tools.some((tool) => tool.name === "gtm_user_permission"),
+  "gtm_user_permission must not be exposed",
+);
+const WRITE_ACTIONS =
+  /^(create|update|remove|revert|publish|setLatest|undelete|combine|moveTagId|moveEntitiesToFolder|createVersion|sync|quickPreview|resolveConflict|reauthorize)$/;
+for (const tool of tools) {
+  const actions = tool.inputSchema?.properties?.action?.enum ?? [];
+  const writes = actions.filter((action) => WRITE_ACTIONS.test(action));
+  assert.deepEqual(writes, [], `${tool.name} exposes write actions`);
+}
+assert.deepEqual(
+  tools.find((tool) => tool.name === "gtm_tag").inputSchema.properties.action
+    .enum,
+  ["get", "list"],
 );
 for (const name of ["gtm_account", "gtm_tag", "gtm_workspace"]) {
   assert.ok(
