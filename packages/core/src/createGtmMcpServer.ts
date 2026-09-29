@@ -1,7 +1,7 @@
 import { ServerOptions } from "@modelcontextprotocol/sdk/server/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Implementation } from "@modelcontextprotocol/sdk/types.js";
-import { readOnlyServer } from "./readOnly.js";
+import { accessControlledServer, GtmAccessPolicy } from "./readOnly.js";
 import { tools as defaultTools } from "./tools/index.js";
 import { GtmToolContext, GtmToolRegistration } from "./types/index.js";
 import { PACKAGE_VERSION } from "./version.js";
@@ -13,6 +13,8 @@ export type CreateGtmMcpServerOptions = GtmToolContext & {
   /** Registered on top of the tool set - e.g. server specific session tools. */
   extraTools?: GtmToolRegistration[];
   serverOptions?: ServerOptions;
+  /** Defaults to read-only. */
+  access?: GtmAccessPolicy;
 };
 
 /** For servers whose `McpServer` instance is owned by a framework. */
@@ -20,8 +22,9 @@ export function registerGtmTools(
   server: McpServer,
   context: GtmToolContext,
   registrations: GtmToolRegistration[] = defaultTools,
+  access?: GtmAccessPolicy,
 ): McpServer {
-  const filtered = readOnlyServer(server);
+  const filtered = accessControlledServer(server, access);
   registrations.forEach((register) => register(filtered, context));
   return server;
 }
@@ -32,6 +35,7 @@ export function createGtmMcpServer({
   tools = defaultTools,
   extraTools = [],
   serverOptions,
+  access,
 }: CreateGtmMcpServerOptions): McpServer {
   const server = new McpServer(
     {
@@ -42,5 +46,5 @@ export function createGtmMcpServer({
     serverOptions,
   );
 
-  return registerGtmTools(server, { auth }, [...tools, ...extraTools]);
+  return registerGtmTools(server, { auth }, [...tools, ...extraTools], access);
 }

@@ -107,6 +107,73 @@ for (const name of ["gtm_account", "gtm_tag", "gtm_workspace"]) {
   );
 }
 
+// Cake fork: edit mode adds workspace edits, fails closed, and gates by account.
+const editEnv = {
+  ...process.env,
+  GOOGLE_ACCESS_TOKEN: "smoke-test-token",
+  GTM_MODE: "edit",
+  GTM_ACCOUNT_ALLOWLIST: "111",
+  GTM_AUDIT_LOG: "/dev/null",
+};
+const edit = await run(
+  editEnv,
+  [
+    ...requests,
+    {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "gtm_tag",
+        arguments: {
+          action: "create",
+          accountId: "999",
+          containerId: "1",
+          workspaceId: "1",
+        },
+      },
+    },
+  ]
+    .map((request) => `${JSON.stringify(request)}\n`)
+    .join(""),
+);
+assert.equal(edit.code, 0, `edit CLI exited with ${edit.code}\n${edit.stderr}`);
+const editMessages = edit.stdout
+  .trim()
+  .split("\n")
+  .map((line) => JSON.parse(line));
+const editTools =
+  editMessages.find((message) => message.id === 2)?.result?.tools ?? [];
+assert.equal(editTools.length, 17, `edit mode: expected 17 tools`);
+assert.deepEqual(
+  editTools.find((tool) => tool.name === "gtm_tag").inputSchema.properties
+    .action.enum,
+  ["get", "list", "create", "update", "revert"],
+);
+const NEVER_ACTIONS =
+  /^(remove|publish|setLatest|undelete|combine|moveTagId|createVersion|sync|quickPreview|resolveConflict|reauthorize)$/;
+for (const tool of editTools) {
+  const actions = tool.inputSchema?.properties?.action?.enum ?? [];
+  assert.deepEqual(
+    actions.filter((action) => NEVER_ACTIONS.test(action)),
+    [],
+    `edit mode: ${tool.name} exposes a forbidden action`,
+  );
+}
+const refused = editMessages.find((message) => message.id === 3)?.result;
+assert.ok(refused?.isError, "edit outside the allowlist must be refused");
+assert.match(refused.content[0].text, /not in this server's allowlist/);
+
+const editNoAllowlist = await run(
+  { ...editEnv, GTM_ACCOUNT_ALLOWLIST: "" },
+  "",
+);
+assert.equal(
+  editNoAllowlist.code,
+  1,
+  "edit mode without allowlist must exit 1",
+);
+
 const unconfigured = await run(withoutGoogleCredentials(), "");
 assert.equal(unconfigured.code, 1, "expected exit code 1 without credentials");
 assert.match(unconfigured.stderr, /GOOGLE_SERVICE_ACCOUNT_KEY/);
