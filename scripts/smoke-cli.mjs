@@ -174,6 +174,39 @@ assert.equal(
   "edit mode without allowlist must exit 1",
 );
 
+// Cake fork: registerTool() bypasses the allowlists, so it must fail closed.
+const { accessControlledServer } =
+  await import("../packages/core/dist/index.js");
+const fakeServer = { tool: () => {}, registerTool: () => {} };
+assert.throws(
+  () =>
+    accessControlledServer(fakeServer).registerTool("gtm_tag", {}, () => {}),
+  /registerTool\(\), which the access filter does not cover/,
+);
+
+// Cake fork: edit audit entries carry the ID Google returned for a created entity.
+const auditEntries = [];
+let registered;
+accessControlledServer(
+  { tool: (...args) => (registered = args) },
+  {
+    mode: "edit",
+    accountAllowlist: ["1"],
+    audit: (entry) => auditEntries.push(entry),
+  },
+).tool("gtm_tag", "d", {}, async () => ({
+  content: [{ type: "text", text: JSON.stringify({ tagId: "42" }) }],
+}));
+await registered[3](
+  { action: "create", accountId: "1", containerId: "2", workspaceId: "3" },
+  {},
+);
+assert.equal(
+  auditEntries[0]?.ids?.tagId,
+  "42",
+  "audit must record created tagId",
+);
+
 const unconfigured = await run(withoutGoogleCredentials(), "");
 assert.equal(unconfigured.code, 1, "expected exit code 1 without credentials");
 assert.match(unconfigured.stderr, /GOOGLE_SERVICE_ACCOUNT_KEY/);

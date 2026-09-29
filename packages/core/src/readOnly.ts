@@ -73,6 +73,19 @@ function idsOf(args: Record<string, unknown>): Record<string, string> {
   ) as Record<string, string>;
 }
 
+/** IDs Google returned for the entity - e.g. the tagId of a tag just created. */
+function createdIds(result: {
+  isError?: boolean;
+  content?: { text?: string }[];
+}): Record<string, string> {
+  if (result?.isError) return {};
+  try {
+    return idsOf(JSON.parse(result?.content?.[0]?.text ?? ""));
+  } catch {
+    return {};
+  }
+}
+
 /** Wraps `server` so tool registrations are filtered through the action allowlists. */
 export function accessControlledServer(
   server: McpServer,
@@ -139,8 +152,15 @@ export function accessControlledServer(
         );
       }
 
-      const result = (await handler(toolArgs, extra)) as { isError?: boolean };
-      edit.audit?.({ ...entry, result: result?.isError ? "error" : "ok" });
+      const result = (await handler(toolArgs, extra)) as {
+        isError?: boolean;
+        content?: { text?: string }[];
+      };
+      edit.audit?.({
+        ...entry,
+        ids: { ...createdIds(result), ...entry.ids },
+        result: result?.isError ? "error" : "ok",
+      });
       return result;
     };
 
@@ -159,8 +179,19 @@ export function accessControlledServer(
     );
   };
 
+  // Only server.tool() is filtered. registerTool() would bypass the allowlists,
+  // so it fails closed: an upstream move to it must extend this filter first.
+  const registerTool = (name: unknown): never => {
+    throw new Error(
+      `${String(name)} uses registerTool(), which the access filter does not cover - extend accessControlledServer before registering it`,
+    );
+  };
+
   return new Proxy(server, {
-    get: (target, prop, receiver) =>
-      prop === "tool" ? tool : Reflect.get(target, prop, receiver),
+    get: (target, prop, receiver): unknown => {
+      if (prop === "tool") return tool;
+      if (prop === "registerTool") return registerTool;
+      return Reflect.get(target, prop, receiver);
+    },
   });
 }
