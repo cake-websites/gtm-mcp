@@ -3,6 +3,12 @@ export const GTM_API_SCOPES = [
   "https://www.googleapis.com/auth/tagmanager.readonly",
 ];
 
+// Cake fork: edit mode adds workspace edits only - no publish, delete, or user management.
+export const GTM_EDIT_SCOPES = [
+  ...GTM_API_SCOPES,
+  "https://www.googleapis.com/auth/tagmanager.edit.containers",
+];
+
 export const GTM_OAUTH_SCOPES = ["email", "profile", ...GTM_API_SCOPES];
 
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";

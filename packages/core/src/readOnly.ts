@@ -29,6 +29,35 @@ export const READ_ONLY_ACTIONS: Record<string, readonly string[] | null> = {
   gtm_zone: ["get", "list"],
 };
 
+/**
+ * Cake fork: workspace edits added in edit mode. Nothing here publishes,
+ * deletes, creates versions, or touches permissions - publishing stays a human
+ * step in the GTM UI. `revert` only discards unpublished workspace changes.
+ */
+export const EDIT_ACTIONS: Record<string, readonly string[]> = {
+  gtm_built_in_variable: ["create", "revert"],
+  gtm_tag: ["create", "update", "revert"],
+  gtm_trigger: ["create", "update", "revert"],
+  gtm_variable: ["create", "update", "revert"],
+};
+
+export type GtmAuditEntry = {
+  ts: string;
+  tool: string;
+  action: string;
+  ids: Record<string, string>;
+  result: "ok" | "error" | "refused";
+};
+
+export type GtmAccessPolicy =
+  | { mode: "read" }
+  | {
+      mode: "edit";
+      /** GTM account IDs edits may target. Required and non-empty. */
+      accountAllowlist: string[];
+      audit?: (entry: GtmAuditEntry) => void;
+    };
+
 type ToolArgs = [
   string,
   string,
@@ -36,8 +65,24 @@ type ToolArgs = [
   (args: Record<string, unknown>, extra: unknown) => unknown,
 ];
 
-/** Wraps `server` so tool registrations are filtered through READ_ONLY_ACTIONS. */
-export function readOnlyServer(server: McpServer): McpServer {
+function idsOf(args: Record<string, unknown>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(args).filter(
+      ([key, value]) => key.endsWith("Id") && typeof value === "string",
+    ),
+  ) as Record<string, string>;
+}
+
+/** Wraps `server` so tool registrations are filtered through the action allowlists. */
+export function accessControlledServer(
+  server: McpServer,
+  policy: GtmAccessPolicy = { mode: "read" },
+): McpServer {
+  const edit = policy.mode === "edit" ? policy : undefined;
+  if (edit && edit.accountAllowlist.length === 0) {
+    throw new Error("edit mode requires a non-empty GTM account allowlist");
+  }
+
   // server.tool's overloads are typed per schema; this filter is schema-agnostic.
   const register = server.tool.bind(server) as unknown as (
     ...args: ToolArgs
@@ -46,7 +91,7 @@ export function readOnlyServer(server: McpServer): McpServer {
   const tool = (...args: unknown[]): unknown => {
     if (args.length !== 4) {
       throw new Error(
-        `read-only filter expects server.tool(name, description, schema, handler), got ${args.length} arguments`,
+        `access filter expects server.tool(name, description, schema, handler), got ${args.length} arguments`,
       );
     }
 
@@ -61,11 +106,47 @@ export function readOnlyServer(server: McpServer): McpServer {
       return register(name, description, schema, handler);
     }
 
-    const actions = allowed as [string, ...string[]];
+    const writes = edit ? (EDIT_ACTIONS[name] ?? []) : [];
+    const actions = [...allowed, ...writes] as [string, ...string[]];
+    const note = edit
+      ? `Edit server: only ${actions.join(", ")} are available. Edits land in the workspace; publishing happens in the GTM UI.`
+      : `Read-only server: only ${actions.join(", ")} are available.`;
+
+    const guarded = async (
+      toolArgs: Record<string, unknown>,
+      extra: unknown,
+    ): Promise<unknown> => {
+      const action = String(toolArgs.action);
+      if (!actions.includes(action)) {
+        return createErrorResponse(
+          `${name} action '${action}' is disabled on this server`,
+          "access",
+        );
+      }
+      if (!edit || !writes.includes(action)) return handler(toolArgs, extra);
+
+      const entry = {
+        ts: new Date().toISOString(),
+        tool: name,
+        action,
+        ids: idsOf(toolArgs),
+      };
+      if (!edit.accountAllowlist.includes(String(toolArgs.accountId))) {
+        edit.audit?.({ ...entry, result: "refused" });
+        return createErrorResponse(
+          `${name} ${action} refused: GTM account ${String(toolArgs.accountId)} is not in this server's allowlist`,
+          "access",
+        );
+      }
+
+      const result = (await handler(toolArgs, extra)) as { isError?: boolean };
+      edit.audit?.({ ...entry, result: result?.isError ? "error" : "ok" });
+      return result;
+    };
 
     return register(
       name,
-      `${description} Read-only server: only ${actions.join(", ")} are available.`,
+      `${description} ${note}`,
       {
         ...schema,
         action: z
@@ -74,13 +155,7 @@ export function readOnlyServer(server: McpServer): McpServer {
             `The operation to perform. Must be one of: ${actions.map((a) => `'${a}'`).join(", ")}.`,
           ),
       },
-      (toolArgs, extra) =>
-        actions.includes(toolArgs.action as string)
-          ? handler(toolArgs, extra)
-          : createErrorResponse(
-              `${name} action '${String(toolArgs.action)}' is disabled on this read-only server`,
-              "read-only",
-            ),
+      guarded,
     );
   };
 
