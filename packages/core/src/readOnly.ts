@@ -58,6 +58,8 @@ export type GtmAccessPolicy =
       audit?: (entry: GtmAuditEntry) => void;
     };
 
+const NUMERIC_ID = /^\d+$/;
+
 type ToolArgs = [
   string,
   string,
@@ -121,9 +123,10 @@ export function accessControlledServer(
 
     const writes = edit ? (EDIT_ACTIONS[name] ?? []) : [];
     const actions = [...allowed, ...writes] as [string, ...string[]];
+    // Upstream descriptions still name every action, so the real list goes first.
     const note = edit
-      ? `Edit server: only ${actions.join(", ")} are available. Edits land in the workspace; publishing happens in the GTM UI.`
-      : `Read-only server: only ${actions.join(", ")} are available.`;
+      ? `Edit server: only ${actions.join(", ")} exist here; ignore any other action named below. Edits land in the workspace; publishing happens in the GTM UI.`
+      : `Read-only server: only ${actions.join(", ")} exist here; ignore any other action named below.`;
 
     const guarded = async (
       toolArgs: Record<string, unknown>,
@@ -144,7 +147,25 @@ export function accessControlledServer(
         action,
         ids: idsOf(toolArgs),
       };
-      if (!edit.accountAllowlist.includes(String(toolArgs.accountId))) {
+      // IDs are interpolated into API paths, so a non-numeric one (e.g.
+      // "1/../../9") could reach another account past the accountId check.
+      const badId = Object.entries(toolArgs).find(
+        ([key, value]) =>
+          key.endsWith("Id") &&
+          value !== undefined &&
+          !(typeof value === "string" && NUMERIC_ID.test(value)),
+      );
+      if (badId) {
+        edit.audit?.({ ...entry, result: "refused" });
+        return createErrorResponse(
+          `${name} ${action} refused: ${badId[0]} must be a numeric GTM ID`,
+          "access",
+        );
+      }
+      if (
+        typeof toolArgs.accountId !== "string" ||
+        !edit.accountAllowlist.includes(toolArgs.accountId)
+      ) {
         edit.audit?.({ ...entry, result: "refused" });
         return createErrorResponse(
           `${name} ${action} refused: GTM account ${String(toolArgs.accountId)} is not in this server's allowlist`,
@@ -166,7 +187,7 @@ export function accessControlledServer(
 
     return register(
       name,
-      `${description} ${note}`,
+      `${note} ${description}`,
       {
         ...schema,
         action: z

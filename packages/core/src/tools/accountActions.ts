@@ -25,7 +25,12 @@ export const accountActions = (
         .describe(
           "The account operation to perform. Must be one of: 'get', 'list', 'update'.",
         ),
-      accountId: z.string().describe("The unique ID of the GTM Account."),
+      accountId: z
+        .string()
+        .optional()
+        .describe(
+          "The unique ID of the GTM Account. Required for 'get' and 'update'; ignored by 'list'.",
+        ),
       config: PayloadSchema.optional().describe(
         "Configuration for 'update' action. All fields correspond to the GTM Account resource. 'update' replaces the entire account — any field omitted here is deleted. Always run 'get' first and send back the complete object with your modifications applied.",
       ),
