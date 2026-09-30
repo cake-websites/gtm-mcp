@@ -97,8 +97,11 @@ export function processVersionData(
     itemsPerPage || ITEMS_PER_PAGE,
   );
 
+  // Paged reads repeat on every page, so carry only the version's identity -
+  // not the full container header. fingerprint stays: it is the edit lock token.
+  const { path, containerVersionId, name, fingerprint, deleted } = baseVersion;
   const result: ProcessedVersionResponse = {
-    version: baseVersion,
+    version: { path, containerVersionId, name, fingerprint, deleted },
     [resourceType]: paginatedResult.data,
     [`${resourceType}Pagination`]: paginatedResult.pagination,
   };

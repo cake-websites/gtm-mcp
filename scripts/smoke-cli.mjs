@@ -100,6 +100,31 @@ assert.deepEqual(
     .enum,
   ["get", "list"],
 );
+// Cake fork: gtm_account list needs no accountId; edit tools still require it.
+const accountTool = tools.find((tool) => tool.name === "gtm_account");
+assert.ok(
+  !(accountTool.inputSchema.required ?? []).includes("accountId"),
+  "gtm_account accountId must be optional",
+);
+assert.deepEqual(accountTool.inputSchema.properties.action.enum, [
+  "get",
+  "list",
+]);
+assert.ok(
+  tools
+    .find((tool) => tool.name === "gtm_tag")
+    .inputSchema.required.includes("accountId"),
+  "gtm_tag must still require accountId",
+);
+// Cake fork: the allowed-action note leads every description with an action param.
+for (const tool of tools) {
+  if (!tool.inputSchema?.properties?.action) continue;
+  assert.match(
+    tool.description,
+    /^Read-only server: only /,
+    `${tool.name} description must lead with the allowed actions`,
+  );
+}
 for (const name of ["gtm_account", "gtm_tag", "gtm_workspace"]) {
   assert.ok(
     tools.some((tool) => tool.name === name),
@@ -205,6 +230,50 @@ assert.equal(
   auditEntries[0]?.ids?.tagId,
   "42",
   "audit must record created tagId",
+);
+
+// Cake fork: a non-numeric ID could path-traverse to another account, so writes refuse it.
+const traversal = await registered[3](
+  {
+    action: "create",
+    accountId: "1",
+    containerId: "2/../../../9/containers/9",
+    workspaceId: "3",
+  },
+  {},
+);
+assert.ok(traversal?.isError, "non-numeric ID must be refused");
+assert.match(traversal.content[0].text, /containerId must be a numeric GTM ID/);
+assert.equal(auditEntries.at(-1)?.result, "refused");
+const numberAccount = await registered[3](
+  { action: "create", accountId: 1, containerId: "2", workspaceId: "3" },
+  {},
+);
+assert.ok(numberAccount?.isError, "non-string accountId must be refused");
+
+// Cake fork: paged version reads carry only the version identity, not the container.
+const { processVersionData } = await import("../packages/core/dist/index.js");
+const fullVersion = {
+  path: "accounts/1/containers/2/versions/3",
+  containerVersionId: "3",
+  name: "v3",
+  fingerprint: "fp",
+  container: { name: "big", publicId: "GTM-X", notes: "x".repeat(2000) },
+  tag: Array.from({ length: 25 }, (_, i) => ({ tagId: String(i) })),
+};
+const page1 = processVersionData(fullVersion, "tag", 1, undefined, false);
+assert.deepEqual(
+  Object.keys(page1.version).filter((k) => page1.version[k] !== undefined),
+  ["path", "containerVersionId", "name", "fingerprint"],
+);
+assert.equal(page1.tag.length, 20);
+assert.equal(page1.tagPagination.hasNextPage, true);
+assert.ok(JSON.stringify(page1).length < 1500, "paged read must stay small");
+const overview = processVersionData(fullVersion);
+assert.equal(
+  overview.version.container.name,
+  "big",
+  "overview keeps the header",
 );
 
 const unconfigured = await run(withoutGoogleCredentials(), "");
