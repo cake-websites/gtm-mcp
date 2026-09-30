@@ -125,6 +125,31 @@ for (const tool of tools) {
     `${tool.name} description must lead with the allowed actions`,
   );
 }
+// Cake fork: params only disabled actions read are dropped from read schemas.
+const paramsOf = (list, name) =>
+  Object.keys(list.find((tool) => tool.name === name).inputSchema.properties);
+for (const [name, hidden] of [
+  ["gtm_version", ["createOrUpdateConfig", "fingerprint"]],
+  ["gtm_workspace", ["entity", "changeStatus", "createOrUpdateConfig"]],
+  ["gtm_tag", ["createOrUpdateConfig", "fingerprint"]],
+  ["gtm_folder", ["tagId", "triggerId", "variableId"]],
+  ["gtm_account", ["config"]],
+  ["gtm_built_in_variable", ["type"]],
+]) {
+  for (const param of hidden) {
+    assert.ok(
+      !paramsOf(tools, name).includes(param),
+      `${name} must not expose ${param} in read mode`,
+    );
+  }
+}
+assert.ok(paramsOf(tools, "gtm_tag").includes("tagId"), "gtm_tag keeps tagId");
+assert.ok(
+  paramsOf(tools, "gtm_version").includes("resourceType"),
+  "gtm_version keeps read params",
+);
+const schemaSize = JSON.stringify(tools).length;
+assert.ok(schemaSize < 50000, `read tools/list is ${schemaSize} chars`);
 for (const name of ["gtm_account", "gtm_tag", "gtm_workspace"]) {
   assert.ok(
     tools.some((tool) => tool.name === name),
@@ -174,6 +199,24 @@ assert.deepEqual(
   editTools.find((tool) => tool.name === "gtm_tag").inputSchema.properties
     .action.enum,
   ["get", "list", "create", "update", "revert"],
+);
+// Cake fork: enabled edit actions keep the params they read.
+for (const [name, kept] of [
+  ["gtm_tag", ["createOrUpdateConfig", "fingerprint"]],
+  ["gtm_trigger", ["createOrUpdateConfig", "fingerprint"]],
+  ["gtm_variable", ["createOrUpdateConfig", "fingerprint"]],
+  ["gtm_built_in_variable", ["type"]],
+]) {
+  for (const param of kept) {
+    assert.ok(
+      paramsOf(editTools, name).includes(param),
+      `edit mode: ${name} must keep ${param}`,
+    );
+  }
+}
+assert.ok(
+  !paramsOf(editTools, "gtm_version").includes("createOrUpdateConfig"),
+  "edit mode: gtm_version stays read-only",
 );
 const NEVER_ACTIONS =
   /^(remove|publish|setLatest|undelete|combine|moveTagId|createVersion|sync|quickPreview|resolveConflict|reauthorize)$/;

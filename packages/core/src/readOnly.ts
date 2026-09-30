@@ -41,6 +41,40 @@ export const EDIT_ACTIONS: Record<string, readonly string[]> = {
   gtm_variable: ["create", "update", "revert"],
 };
 
+/**
+ * Cake fork: parameters that only disabled actions read, keyed by param name
+ * (or `tool.param` where a name means different things per tool). A param is
+ * dropped from the schema when none of its actions is enabled on that tool, so
+ * a read server does not ship 20k-character write payload schemas. Params not
+ * listed here are always kept - an upstream rename only makes a param visible.
+ */
+export const PARAM_ACTIONS: Record<string, readonly string[]> = {
+  createOrUpdateConfig: ["create", "update"],
+  fingerprint: ["update", "revert", "publish", "resolveConflict"],
+  combineConfig: ["combine"],
+  moveTagIdConfig: ["moveTagId"],
+  entity: ["resolveConflict"],
+  changeStatus: ["resolveConflict"],
+  "gtm_account.config": ["update"],
+  "gtm_built_in_variable.type": ["revert", "remove"],
+  "gtm_folder.tagId": ["moveEntitiesToFolder"],
+  "gtm_folder.triggerId": ["moveEntitiesToFolder"],
+  "gtm_folder.variableId": ["moveEntitiesToFolder"],
+};
+
+function usedParams(
+  name: string,
+  schema: Record<string, z.ZodType>,
+  actions: readonly string[],
+): Record<string, z.ZodType> {
+  return Object.fromEntries(
+    Object.entries(schema).filter(([param]) => {
+      const users = PARAM_ACTIONS[`${name}.${param}`] ?? PARAM_ACTIONS[param];
+      return !users || users.some((action) => actions.includes(action));
+    }),
+  );
+}
+
 export type GtmAuditEntry = {
   ts: string;
   tool: string;
@@ -189,7 +223,7 @@ export function accessControlledServer(
       name,
       `${note} ${description}`,
       {
-        ...schema,
+        ...usedParams(name, schema, actions),
         action: z
           .enum(actions)
           .describe(
