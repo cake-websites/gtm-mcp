@@ -506,3 +506,5 @@ Both `@modelcontextprotocol/sdk` and `agents` are pinned to exact versions in `a
 ## Open Source
 
 The **MCP Server for Google Tag Manager** is developed and maintained by [Stape Team](https://stape.io/) under the Apache 2.0 license.
+
+This fork is extended by [Clark Mackey](https://github.com/clark-mackey): the read-only allowlist, opt-in edit mode, and the hardening described at the top of this README.
